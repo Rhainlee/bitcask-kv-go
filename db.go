@@ -57,7 +57,7 @@ func Open(options Options) (*DB, error) {
 	return db, nil
 }
 
-// Put 写入 Key/Value 数据， key 不能为空
+// Put 写入 Key/Value 数据，key 不能为空
 func (db *DB) Put(key []byte, value []byte) error {
 	// 判断 key 是否有效
 	if len(key) == 0 {
@@ -79,6 +79,34 @@ func (db *DB) Put(key []byte, value []byte) error {
 
 	// 更新内存索引
 	if ok := db.index.Put(key, pos); !ok {
+		return ErrIndexUpdateFailed
+	}
+	return nil
+}
+
+// Delete 根据 key 删除对应的数据
+func (db *DB) Delete(key []byte) error {
+	// 判断 key 的有效性
+	if len(key) == 0 {
+		return ErrKeyIsEmpty
+	}
+
+	// 先检查 key 是否存在， 如果不存在的话直接返回
+	if pos := db.index.Get(key); pos == nil {
+		return nil
+	}
+
+	// 构造LogRecord, 标识其是被删除的
+	logRecord := &data.LogRecord{Key: key, Type: data.LogRecordDeleted}
+	// 写入到数据文件当中
+	_, err := db.appendLogRecord(logRecord)
+	if err != nil {
+		return nil
+	}
+
+	// 从内存索引中将对应的 key 删除
+	ok := db.index.Delete(key)
+	if !ok {
 		return ErrIndexUpdateFailed
 	}
 	return nil
