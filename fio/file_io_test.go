@@ -17,7 +17,7 @@ func TestNewFileIOManager(t *testing.T) {
 	path := filepath.Join("d:\\temp", "a.data") // 用于构建文件路径的函数调用，windows下绝对路径写法，要提前创建好temp目录
 	fio, err := NewFileIOManager(path)
 	defer destoryFile(path)
-	defer fio.Close() // 只能这样才能通过测试，但是这样就不是独立测试函数了，暂时存疑
+	defer fio.Close() // 先关闭文件才能删除文件
 
 	assert.Nil(t, err)
 	assert.NotNil(t, fio)
