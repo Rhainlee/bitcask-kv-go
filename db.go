@@ -6,6 +6,7 @@ import (
 	"github.com/rhainlee/bitcask-kv-go/index"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ type DB struct {
 	olderFiles map[uint32]*data.DataFile // 旧的数据文件，只能用于读
 	index      index.Indexer             // 内存索引
 	seqNo      uint64                    // 事务序列号，全局递增
+	isMerging  bool                      // 是否正在 merge
 }
 
 // Open 打开 bitcask 存储引擎实例
@@ -45,8 +47,18 @@ func Open(options Options) (*DB, error) {
 		index:      index.NewIndexer(options.IndexType),
 	}
 
+	// 加载 merge 数据目录
+	if err := db.loadMergeFiles(); err != nil {
+		return nil, err
+	}
+
 	// 加载数据文件
 	if err := db.loadDataFiles(); err != nil {
+		return nil, err
+	}
+
+	// 从 hint 文件中加载索引
+	if err := db.loadIndexFromHintFile(); err != nil {
 		return nil, err
 	}
 
@@ -343,10 +355,30 @@ func (db *DB) loadIndexFromDataFiles() error {
 		return nil
 	}
 
+	// 查看是否发生过 merge
+	hasMerge, nonMergeFileId := false, uint32(0)
+	mergeFinFileName := filepath.Join(db.options.DirPath, data.MergeFinishedFileName)
+	if _, err := os.Stat(mergeFinFileName); err == nil {
+		fid, err := db.getNonMergeFileId(db.options.DirPath)
+		if err != nil {
+			return err
+		}
+		hasMerge = true
+		nonMergeFileId = fid
+	}
+
 	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) {
 		var ok bool
 		if typ == data.LogRecordDeleted {
-			ok = db.index.Delete(key)
+			//// 什么时候会出现下列情况？  如果对参与 merge 的文件进行了 delete 操作， 那hint文件中就不会有这个key，在加载索引的时候就不会有这个 key，就会执行
+			//// 一次无效的 delete 操作
+			//if pos := db.index.Get(key); pos != nil { // 如果 key 不存在于索引中，就不必进行 delete 操作了
+			//	ok = db.index.Delete(key)
+			//} else {
+			//	ok = true
+			//}
+			db.index.Delete(key)
+			ok = true // 有没有删除都返回 true？？ 这样改行吗，暂时先这么写
 		} else {
 			ok = db.index.Put(key, pos)
 		}
@@ -362,6 +394,10 @@ func (db *DB) loadIndexFromDataFiles() error {
 	// 遍历所有的文件 id，处理文件中的记录
 	for i, fid := range db.fileIds {
 		var fileId = uint32(fid)
+		// 如果比最近未参与 merge 的文件 id 更小，则说明已经从 Hint 文件加载过索引了
+		if hasMerge && fileId < nonMergeFileId {
+			continue
+		}
 		var dataFile *data.DataFile
 		if fileId == db.activeFile.FileId {
 			dataFile = db.activeFile

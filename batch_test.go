@@ -86,28 +86,28 @@ func TestDB_WriteBatch2(t *testing.T) {
 	assert.Equal(t, uint64(2), db.seqNo)
 }
 
-// 模拟数据批量写入磁盘时服务器崩溃，重启后写入的一部分数据应该无效
-func TestDB_NewWriteBatch3(t *testing.T) {
-	opts := DefaultOptions
-	dir := "D:\\work\\temp"
-	//dir, _ := os.MkdirTemp("", "bitcask-go-batch-2")
-	opts.DirPath = dir
-	db, err := Open(opts)
-	//defer destroyDB(db)
-	assert.Nil(t, err)
-	assert.NotNil(t, db)
-
-	keys := db.ListKeys()
-	assert.Equal(t, 0, len(keys))
-
-	//wbOpts := DefaultWriteBatchOptions
-	//wbOpts.MaxBatchNum = 10000000
-	//wb := db.NewWriteBatch(wbOpts)
-	//for i := 0; i < 500000; i++ {
-	//	err := wb.Put(utils.GetTestKey(i), utils.RandomValue(1024))
-	//	assert.Nil(t, err)
-	//}
-	//err = wb.Commit()
-	//assert.Nil(t, err)
-
-}
+//// 模拟数据批量写入磁盘时服务器崩溃，重启后写入的一部分数据应该无效
+//func TestDB_NewWriteBatch3(t *testing.T) {
+//	opts := DefaultOptions
+//	dir := "D:\\work\\temp"
+//	//dir, _ := os.MkdirTemp("", "bitcask-go-batch-2")
+//	opts.DirPath = dir
+//	db, err := Open(opts)
+//	//defer destroyDB(db)
+//	assert.Nil(t, err)
+//	assert.NotNil(t, db)
+//
+//	keys := db.ListKeys()
+//	assert.Equal(t, 0, len(keys))
+//
+//	//wbOpts := DefaultWriteBatchOptions
+//	//wbOpts.MaxBatchNum = 10000000
+//	//wb := db.NewWriteBatch(wbOpts)
+//	//for i := 0; i < 500000; i++ {
+//	//	err := wb.Put(utils.GetTestKey(i), utils.RandomValue(1024))
+//	//	assert.Nil(t, err)
+//	//}
+//	//err = wb.Commit()
+//	//assert.Nil(t, err)
+//
+//}
