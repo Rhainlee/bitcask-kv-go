@@ -13,6 +13,7 @@ func destroyDB(db *DB) {
 		if db.activeFile != nil {
 			_ = db.Close()
 		}
+		db.index.Close()
 		err := os.RemoveAll(db.options.DirPath)
 		if err != nil {
 			panic(err)
@@ -111,7 +112,7 @@ func TestDB_Get(t *testing.T) {
 	assert.Nil(t, val2)
 	assert.Equal(t, ErrKeyNotFound, err)
 
-	// 3.值被重复 Put 后在读取
+	// 3.值被重复 Put 后再读取
 	err = db.Put(utils.GetTestKey(22), utils.RandomValue(24))
 	assert.Nil(t, err)
 	err = db.Put(utils.GetTestKey(22), utils.RandomValue(24))
@@ -145,6 +146,7 @@ func TestDB_Get(t *testing.T) {
 	// 重启数据库
 	db2, err := Open(opts)
 	defer db2.Close()
+
 	val6, err := db2.Get(utils.GetTestKey(11))
 	assert.Nil(t, err)
 	assert.NotNil(t, val6)
@@ -155,7 +157,7 @@ func TestDB_Get(t *testing.T) {
 	assert.NotNil(t, val7)
 	assert.Equal(t, val3, val7)
 
-	val8, err := db.Get(utils.GetTestKey(33))
+	val8, err := db2.Get(utils.GetTestKey(33))
 	assert.Equal(t, 0, len(val8))
 	assert.Equal(t, ErrKeyNotFound, err)
 }

@@ -147,9 +147,10 @@ func (db *DB) Merge() error {
 }
 
 func (db *DB) getMergePath() string {
-	dir := path.Dir(path.Clean(db.options.DirPath))
+	//dir := path.Dir(path.Clean(db.options.DirPath))
 	base := path.Base(db.options.DirPath)
-	return filepath.Join(dir, base+mergeDirName)
+	//return filepath.Join(dir, base+mergeDirName)
+	return base + mergeDirName
 }
 
 // 加载 merge 数据目录
@@ -175,9 +176,9 @@ func (db *DB) loadMergeFiles() error {
 		if entry.Name() == data.MergeFinishedFileName {
 			mergeFinished = true
 		}
-		//if entry.Name() == data.SeqNoFileName {
-		//	continue
-		//}
+		if entry.Name() == data.SeqNoFileName {
+			continue
+		}
 		mergeFileNames = append(mergeFileNames, entry.Name())
 	}
 	// 没有 merge 完成则直接返回
