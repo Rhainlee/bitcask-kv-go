@@ -315,3 +315,39 @@ func TestDB_Sync(t *testing.T) {
 	err = db.Sync()
 	assert.Nil(t, err)
 }
+
+func TestDB_FileLock(t *testing.T) {
+	opts := DefaultOptions
+	dir, _ := os.MkdirTemp("", "bitcask-go-filelock")
+	opts.DirPath = dir
+	db, err := Open(opts)
+	defer destroyDB(db)
+	assert.Nil(t, err)
+	assert.NotNil(t, db)
+
+	_, err = Open(opts)
+	assert.Equal(t, ErrDatabaseIsUsing, err)
+
+	err = db.Close()
+	assert.Nil(t, err)
+
+	db2, err := Open(opts)
+	assert.Nil(t, err)
+	assert.NotNil(t, db2)
+	err = db2.Close()
+	assert.Nil(t, err)
+}
+
+//// 测试使用 MMapAtStartUp, 打开数据库速度提升
+//func TestDB_MMapOpen(t *testing.T) {
+//	opts := DefaultOptions
+//	opts.DirPath = "D:\\work\\tmp"
+//	opts.MMapAtStartup = false
+//	db, err := Open(opts)
+//	assert.Nil(t, err)
+//	assert.NotNil(t, db)
+//	//for i := 0; i < 3000000; i++ {
+//	//	err := db.Put(utils.GetTestKey(i), utils.RandomValue(128))
+//	//	assert.Nil(t, err)
+//	//}
+//}

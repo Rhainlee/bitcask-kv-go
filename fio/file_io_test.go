@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func destoryFile(name string) {
+func destroyFile(name string) {
 	if err := os.RemoveAll(name); err != nil {
 		panic(err)
 	}
@@ -16,7 +16,7 @@ func destoryFile(name string) {
 func TestNewFileIOManager(t *testing.T) {
 	path := filepath.Join("d:\\temp", "a.data") // 用于构建文件路径的函数调用，windows下绝对路径写法，要提前创建好temp目录
 	fio, err := NewFileIOManager(path)
-	defer destoryFile(path)
+	defer destroyFile(path)
 	defer fio.Close() // 先关闭文件才能删除文件
 
 	assert.Nil(t, err)
@@ -26,7 +26,7 @@ func TestNewFileIOManager(t *testing.T) {
 func TestFileIO_Write(t *testing.T) {
 	path := filepath.Join("d:\\temp", "a.data")
 	fio, err := NewFileIOManager(path)
-	defer destoryFile(path)
+	defer destroyFile(path)
 	defer fio.Close()
 
 	assert.Nil(t, err)
@@ -50,7 +50,7 @@ func TestFileIO_Write(t *testing.T) {
 func TestFileIO_Read(t *testing.T) {
 	path := filepath.Join("d:\\temp", "a.data")
 	fio, err := NewFileIOManager(path)
-	defer destoryFile(path)
+	defer destroyFile(path)
 	defer fio.Close()
 
 	assert.Nil(t, err)
@@ -77,7 +77,7 @@ func TestFileIO_Read(t *testing.T) {
 func TestFileIO_Sync(t *testing.T) {
 	path := filepath.Join("d:\\temp", "a.data")
 	fio, err := NewFileIOManager(path)
-	defer destoryFile(path)
+	defer destroyFile(path)
 	defer fio.Close()
 
 	assert.Nil(t, err)
@@ -90,7 +90,7 @@ func TestFileIO_Sync(t *testing.T) {
 func TestFileIO_Close(t *testing.T) {
 	path := filepath.Join("d:\\temp", "a.data")
 	fio, err := NewFileIOManager(path)
-	defer destoryFile(path)
+	defer destroyFile(path)
 	defer fio.Close()
 
 	assert.Nil(t, err)
