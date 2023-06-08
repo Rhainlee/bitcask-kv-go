@@ -10,9 +10,9 @@ import (
 // 测试完成之后销毁 DB 数据目录
 func destroyDB(db *DB) {
 	if db != nil {
-		if db.activeFile != nil {
-			_ = db.Close()
-		}
+		//if db.activeFile != nil {
+		_ = db.Close()
+		//}
 		db.index.Close()
 		err := os.RemoveAll(db.options.DirPath)
 		if err != nil {
@@ -336,6 +336,44 @@ func TestDB_FileLock(t *testing.T) {
 	assert.NotNil(t, db2)
 	err = db2.Close()
 	assert.Nil(t, err)
+}
+
+func TestDB_Stat(t *testing.T) {
+	opts := DefaultOptions
+	dir, _ := os.MkdirTemp("", "bitcask-go-stat")
+	//dir := "/tmp/bitcask-go-stat"
+	opts.DirPath = dir
+	db, err := Open(opts)
+	defer destroyDB(db)
+	assert.Nil(t, err)
+	assert.NotNil(t, db)
+
+	// totalSize 是我加在db.go中的临时测试变量
+
+	// 1.put后再删除
+	for i := 0; i < 100; i++ {
+		err := db.Put(utils.GetTestKey(i), utils.RandomValue(1024))
+		assert.Nil(t, err)
+		err = db.Delete(utils.GetTestKey(i))
+		assert.Nil(t, err)
+	}
+	//t.Log(db.Stat())
+	//t.Log(db.Stat().ReclaimableSize == int64(totalSize))
+	assert.True(t, db.Stat().ReclaimableSize == int64(totalSize))
+
+	//// 2.put后重复put
+	//totalSize = 0
+	//for i := 0; i < 100; i++ {
+	//	err := db.Put(utils.GetTestKey(i), utils.RandomValue(1024))
+	//	assert.Nil(t, err)
+	//	err = db.Put(utils.GetTestKey(i), utils.RandomValue(1024))
+	//	assert.Nil(t, err)
+	//}
+	//t.Log(db.Stat())
+	//t.Log(db.Stat().ReclaimableSize == int64(totalSize/2))
+
+	// todo writeBatch 测试
+
 }
 
 //// 测试使用 MMapAtStartUp, 打开数据库速度提升

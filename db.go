@@ -7,6 +7,7 @@ import (
 	"github.com/rhainlee/bitcask-kv-go/data"
 	"github.com/rhainlee/bitcask-kv-go/fio"
 	"github.com/rhainlee/bitcask-kv-go/index"
+	"github.com/rhainlee/bitcask-kv-go/utils"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,6 +36,37 @@ type DB struct {
 	isInitial       bool                      // 是否是第一次初始化此数据目录
 	fileLock        *flock.Flock              // 文件锁保证多进程之间的互斥
 	bytesWrite      uint                      // 累计写了多少字节（到达阈值后进行持久化，重新计数）
+	reclaimSize     int64                     // 表示有多少数据是无效的
+}
+
+type Stat struct {
+	KeyNum          uint  // key 的数量
+	DataFileNum     uint  // 数据文件的个数
+	ReclaimableSize int64 // 磁盘可回收的空间，字节为单位
+	DiskSize        int64 // 所占磁盘空间的大小
+}
+
+// Stat 返回数据库的统计信息
+func (db *DB) Stat() *Stat {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	var dataFiles = uint(len(db.olderFiles))
+	if db.activeFile != nil {
+		dataFiles += 1
+	}
+
+	dirSize, err := utils.DirSize(db.options.DirPath)
+	if err != nil {
+		panic(err)
+	}
+
+	return &Stat{
+		KeyNum:          uint(db.index.Size()),
+		DataFileNum:     dataFiles,
+		ReclaimableSize: db.reclaimSize,
+		DiskSize:        dirSize,
+	}
 }
 
 // Open 打开 bitcask 存储引擎实例
@@ -131,7 +163,7 @@ func Open(options Options) (*DB, error) {
 // Close 关闭数据库
 func (db *DB) Close() error {
 	defer func() {
-		if err := db.fileLock.Unlock(); err != nil {
+		if err := db.fileLock.Close(); err != nil {
 			panic(fmt.Sprintf("failed to unlock the directory, %v", err))
 		}
 	}()
@@ -188,6 +220,9 @@ func (db *DB) Sync() error {
 	return db.activeFile.Sync()
 }
 
+// 测试用变量 可删
+var totalSize int
+
 // Put 写入 Key/Value 数据，key 不能为空
 func (db *DB) Put(key []byte, value []byte) error {
 	// 判断 key 是否有效
@@ -204,13 +239,18 @@ func (db *DB) Put(key []byte, value []byte) error {
 
 	// 追加写入到当前活跃数据文件中
 	pos, err := db.appendLogRecordWithLock(log_record)
+
+	// 测试用临时代码，可删
+	totalSize += int(pos.Size)
+
 	if err != nil {
 		return err
 	}
 
 	// 更新内存索引
-	if ok := db.index.Put(key, pos); !ok {
-		return ErrIndexUpdateFailed
+	if oldPos := db.index.Put(key, pos); oldPos != nil {
+		db.reclaimSize += int64(oldPos.Size)
+		//return ErrIndexUpdateFailed
 	}
 	return nil
 }
@@ -233,15 +273,23 @@ func (db *DB) Delete(key []byte) error {
 		Type: data.LogRecordDeleted,
 	}
 	// 写入到数据文件当中
-	_, err := db.appendLogRecordWithLock(logRecord)
+	pos, err := db.appendLogRecordWithLock(logRecord)
+
+	// 测试用临时代码，可删
+	totalSize += int(pos.Size)
+
 	if err != nil {
 		return nil
 	}
+	db.reclaimSize += int64(pos.Size)
 
 	// 从内存索引中将对应的 key 删除
-	ok := db.index.Delete(key)
+	oldPos, ok := db.index.Delete(key)
 	if !ok {
 		return ErrIndexUpdateFailed
+	}
+	if oldPos != nil {
+		db.reclaimSize += int64(oldPos.Size)
 	}
 	return nil
 }
@@ -382,7 +430,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	}
 
 	// 构造内存索引信息
-	pos := &data.LogRecordPos{Fid: db.activeFile.FileId, Offset: writeOff}
+	pos := &data.LogRecordPos{Fid: db.activeFile.FileId, Offset: writeOff, Size: uint32(size)}
 	return pos, nil
 
 }
@@ -469,7 +517,7 @@ func (db *DB) loadIndexFromDataFiles() error {
 	}
 
 	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) {
-		var ok bool
+		var oldPos *data.LogRecordPos
 		if typ == data.LogRecordDeleted {
 			//// 什么时候会出现下列情况？  如果对参与 merge 的文件进行了 delete 操作， 那hint文件中就不会有这个key，在加载索引的时候就不会有这个 key，就会执行
 			//// 一次无效的 delete 操作
@@ -478,13 +526,13 @@ func (db *DB) loadIndexFromDataFiles() error {
 			//} else {
 			//	ok = true
 			//}
-			db.index.Delete(key)
-			ok = true // 有没有删除都返回 true？？ 这样改行吗，暂时先这么写
+			oldPos, _ = db.index.Delete(key)
+			db.reclaimSize += int64(pos.Size)
 		} else {
-			ok = db.index.Put(key, pos)
+			oldPos = db.index.Put(key, pos)
 		}
-		if !ok {
-			panic("failed to update index at startup")
+		if oldPos != nil {
+			db.reclaimSize += int64(oldPos.Size)
 		}
 	}
 
@@ -517,7 +565,7 @@ func (db *DB) loadIndexFromDataFiles() error {
 			}
 
 			// 构造内存索引并保存
-			logRecordPos := &data.LogRecordPos{Fid: fileId, Offset: offset}
+			logRecordPos := &data.LogRecordPos{Fid: fileId, Offset: offset, Size: uint32(size)}
 
 			// 解析 key, 拿到事务序列号
 			realKey, seqNo := parseLogRecordKey(logRecord.Key)
@@ -567,6 +615,9 @@ func checkOptions(options Options) error {
 	}
 	if options.DataFileSize <= 0 {
 		return errors.New("database data file size must be greater than 0")
+	}
+	if options.DataFileMergeRatio < 0 || options.DataFileMergeRatio > 1 {
+		return errors.New("invalid merge ratio, must between 0 and 1")
 	}
 	return nil
 }

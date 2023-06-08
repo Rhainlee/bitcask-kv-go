@@ -2,6 +2,7 @@ package bitcask_kv_go
 
 import (
 	"github.com/rhainlee/bitcask-kv-go/data"
+	"github.com/rhainlee/bitcask-kv-go/utils"
 	"io"
 	"os"
 	"path"
@@ -27,6 +28,29 @@ func (db *DB) Merge() error {
 		db.mu.Unlock()
 		return ErrMergeIsProgress
 	}
+
+	// 查看可以 merge 的数据量是否达到了阈值
+	totalSize, err := utils.DirSize(db.options.DirPath)
+	if err != nil {
+		db.mu.Unlock()
+		return err
+	}
+	if float32(db.reclaimSize)/float32(totalSize) < db.options.DataFileMergeRatio {
+		db.mu.Unlock()
+		return ErrMergeRatioUnreached
+	}
+
+	// 查看剩余的空间容量是否可以容纳 Merge 后的数据
+	availableDiskSize, err := utils.AvailableDiskSize()
+	if err != nil {
+		db.mu.Unlock()
+		return err
+	}
+	if uint64(totalSize-db.reclaimSize) >= availableDiskSize {
+		db.mu.Unlock()
+		return ErrNoEnoughDiskForMerge
+	}
+
 	db.isMerging = true
 	defer func() {
 		db.isMerging = false
@@ -77,12 +101,14 @@ func (db *DB) Merge() error {
 	mergeOptions.DirPath = mergePath
 	mergeOptions.SyncWrites = false // 自己来控制，完成所有写入之后Sync, 不必每次写一条数据都Sync
 	mergeDB, err := Open(mergeOptions)
+	defer mergeDB.Close()
 	if err != nil {
 		return err
 	}
 
 	// 打开 hint 文件存储索引    边 merge, 边写 hint
 	hintFile, err := data.OpenHintFile(mergePath)
+	defer hintFile.Close()
 	if err != nil {
 		return err
 	}
@@ -128,6 +154,8 @@ func (db *DB) Merge() error {
 
 	// 写标识 merge 完成的文件
 	mergeFinishedFile, err := data.OpenMergeFinishedFile(mergePath)
+	defer mergeFinishedFile.Close()
+
 	if err != nil {
 		return err
 	}
@@ -179,6 +207,9 @@ func (db *DB) loadMergeFiles() error {
 		if entry.Name() == data.SeqNoFileName {
 			continue
 		}
+		if entry.Name() == fileLockName {
+			continue
+		}
 		mergeFileNames = append(mergeFileNames, entry.Name())
 	}
 	// 没有 merge 完成则直接返回
@@ -205,7 +236,7 @@ func (db *DB) loadMergeFiles() error {
 	for _, fileName := range mergeFileNames {
 		scrPath := filepath.Join(mergePath, fileName)
 		destPath := filepath.Join(db.options.DirPath, fileName)
-		if err := os.Rename(destPath, scrPath); err != nil {
+		if err := os.Rename(scrPath, destPath); err != nil {
 			return err
 		}
 	}
@@ -214,6 +245,7 @@ func (db *DB) loadMergeFiles() error {
 
 func (db *DB) getNonMergeFileId(dirPath string) (uint32, error) {
 	mergeFinishedFile, err := data.OpenMergeFinishedFile(dirPath)
+	defer mergeFinishedFile.Close()
 	if err != nil {
 		return 0, err
 	}
@@ -238,6 +270,7 @@ func (db *DB) loadIndexFromHintFile() error {
 	}
 	// 打开 hint 文件
 	hintFile, err := data.OpenHintFile(db.options.DirPath)
+	defer hintFile.Close()
 	if err != nil {
 		return err
 	}
