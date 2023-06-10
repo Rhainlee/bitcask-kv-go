@@ -69,6 +69,13 @@ func (db *DB) Stat() *Stat {
 	}
 }
 
+// Backup 备份数据库，将数据文件拷贝到新的目录中
+func (db *DB) Backup(dir string) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return utils.CopyDir(db.options.DirPath, dir, []string{fileLockName})
+}
+
 // Open 打开 bitcask 存储引擎实例
 func Open(options Options) (*DB, error) {
 	// 对用户传入的配置项进行校验
